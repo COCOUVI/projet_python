@@ -56,3 +56,13 @@ But : Il fournit l'interface principale pour l'affichage et l'édition des donn�
 
 ####
 main.py : Ce fichier est le point d'entrée de l'application, lançant l'interface graphique en créant une instance de la fenêtre principale et en démarrant la boucle d'événements.
+
+###
+
+Diffucltées 1 : Compréhension du déplacement dans la TableView
+Description : Au départ, il y avait une confusion sur la manière dont la barre de navigation affectait l'affichage des données dans la TableView. Il semblait que le curseur d'édition (le entry clignotant) devait se déplacer physiquement à travers les cellules.
+Solution : Nous avons clarifié que la barre de navigation modifie la vue des données en mettant à jour le contenu des entrées de la TableView avec les données correspondantes du fichier CSV. Cette mise à jour dynamique crée l'illusion du déplacement. Nous avons également ajouté du code pour déplacer physiquement le curseur d'édition avec la navigation.
+
+Diffucltées 2 : Déplacement du curseur d'édition
+Description : La demande initiale était que le curseur d'édition se déplace dans les entrées de la TableView au fur et à mesure de la navigation avec la barre de navigation.
+Solution : Nous avons modifié les fonctions de navigation pour suivre l'entrée active et utiliser la méthode focus_set() de l'entrée pour déplacer le curseur. Cela a amélioré l'expérience utilisateur en rendant la navigation plus intuitive.
