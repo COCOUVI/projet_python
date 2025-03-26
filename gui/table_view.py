@@ -1,5 +1,6 @@
 import tkinter as tk
 import pandas as pd
+from core.undo_redo import UndoRedoManager 
 
 class TableView(tk.Frame):
     def __init__(self, master=None, rows=10, cols=5):
@@ -11,6 +12,19 @@ class TableView(tk.Frame):
         self.df = pd.DataFrame([['' for _ in range(cols)] for _ in range(rows)]) # Utilisation de pandas DataFrame
         self.selected_cells = []
         self.merged_cells = {}
+        self.modifications = []  # Ajout : Liste pour stocker les modifications
+        self.undo_redo_manager = UndoRedoManager() 
+        ######
+          # Ajout des boutons Undo et Redo
+        self.undo_button = tk.Button(self, text="Undo", command=self.undo)
+        self.undo_button.grid(row=self.rows + 1, column=0, columnspan=2)
+        self.redo_button = tk.Button(self, text="Redo", command=self.redo)
+        self.redo_button.grid(row=self.rows + 1, column=2, columnspan=2)
+
+        self.update_undo_redo_buttons()  # Mettre à jour l'état initial des boutons
+            
+        #####
+
         def select_cell(event):
             widget = event.widget
             if isinstance(widget, tk.Entry):  # Vérifier si le widget est un Entry
@@ -51,8 +65,8 @@ class TableView(tk.Frame):
             for j in range(cols):
                 entry = tk.Entry(self, width=6)
                 entry.grid(row=i + 1, column=j, sticky='nsew')
-                entry.bind("<FocusOut>", lambda event, row=i, col=j: self.on_cell_change(event, row, col))
-                entry.bind("<Return>", lambda event, row=i, col=j: self.on_cell_change(event, row, col))
+                entry.bind("<FocusOut>", self.on_cell_change)
+                entry.bind("<Return>", self.on_cell_change)
                 row_entries.append(entry)
             self.entries.append(row_entries)
 
@@ -113,23 +127,81 @@ class TableView(tk.Frame):
         # self.merge_button.grid(row=rows + 1, column=0, columnspan=cols)
 
         self.update_entries_from_df() # Mettre à jour les entrées à partir du DataFrame
-
+    #saving modify
+    def sauvegarder_modifications(self):
+        """Applique les modifications stockées au DataFrame."""
+        for modification in self.modifications:
+            if modification["type"] == "modification":
+                self.df.iloc[modification["ligne"], modification["colonne"]] = modification["nouvelle_valeur"]
+        self.modifications = []  # Réinitialiser la liste des modifications
     def get_data(self):
         return self.df.values.tolist() # Retourner les données sous forme de liste
 
     def set_data(self, data):
-        self.df = pd.DataFrame(data) # Mettre à jour le DataFrame
-        self.update_entries_from_df() # Mettre à jour les entrées
+        self.df = pd.DataFrame(data)
+        self.rows = len(data)
+        self.cols = len(data[0]) if data else 0 #ajout de la gestion si data est vide
+        self.update_entries_from_df()
+    def on_cell_change(self, event):
+        widget = event.widget
+        row = widget.grid_info()['row'] - 1
+        col = widget.grid_info()['column']
 
-    def on_cell_change(self, event, row, col):
-        self.df.iloc[row, col] = event.widget.get() # Mettre à jour le DataFrame
-        self.update_entries_from_df() # Mettre à jour les entrées
+        if 0 <= row < self.rows and 0 <= col < self.cols:
+            ancienne_valeur = self.df.iloc[row, col]
+            nouvelle_valeur = widget.get()
 
-    def update_entries_from_df(self):
+            if ancienne_valeur != nouvelle_valeur:
+                self.modifications.append({
+                    "type": "modification",
+                    "ligne": row,
+                    "colonne": col,
+                    "ancienne_valeur": ancienne_valeur,
+                    "nouvelle_valeur": nouvelle_valeur,
+                })
+                self.undo_redo_manager.record_change({ # Ajout de record_change
+                    "ligne": row,
+                    "colonne": col,
+                    "ancienne_valeur": ancienne_valeur,
+                    "nouvelle_valeur": nouvelle_valeur,
+                })
+                self.update_undo_redo_buttons()
+            else:
+                # print("Aucune modification détectée.")
+                pass
+        else:
+            pass
+    def update_undo_redo_buttons(self):
+        self.undo_button["state"] = tk.NORMAL if self.undo_redo_manager.undo_stack else tk.DISABLED
+        self.redo_button["state"] = tk.NORMAL if self.undo_redo_manager.redo_stack else tk.DISABLED
+
+    def undo(self):
+        change = self.undo_redo_manager.undo()  # Utilisez la méthode undo
+        if change:
+            self.df.iloc[change["ligne"], change["colonne"]] = change["ancienne_valeur"]
+            self.update_entries_from_df()
+            self.update_undo_redo_buttons()
+    def redo(self):
+        change = self.undo_redo_manager.redo()  # Utilisez la méthode redo
+        if change:
+            self.df.iloc[change["ligne"], change["colonne"]] = change["nouvelle_valeur"]
+            self.update_entries_from_df()
+            self.update_undo_redo_buttons()
+
+    def sauvegarder_modifications(self):
+        """Applique les modifications stockées au DataFrame."""
+        # print(f"Modifications à appliquer : {self.modifications}")  # Debug
+        for modification in self.modifications:
+            if modification["type"] == "modification":
+                self.df.iloc[modification["ligne"], modification["colonne"]] = modification["nouvelle_valeur"]
+        self.modifications = []  # Réinitialiser la liste des modifications
+    
+    def update_entries_from_df(self, current_row=0, current_col=0):
         for i in range(self.rows):
             for j in range(self.cols):
-                self.entries[i][j].delete(0, tk.END)
-                self.entries[i][j].insert(0, str(self.df.iloc[i, j]))
+                if i < len(self.entries) and j < len(self.entries[i]):
+                    self.entries[i][j].delete(0, tk.END)
+                    self.entries[i][j].insert(0, str(self.df.iloc[i, j]))
     def start_col_drag(self, event):
         header = event.widget
         col = header.grid_info()["column"]
@@ -187,16 +259,27 @@ class TableView(tk.Frame):
         self.drag_data["row"] = None
 
     def swap_rows(self, row1, row2):
-        # Échange les lignes dans le DataFrame
-        self.df.iloc[[row1, row2]] = self.df.iloc[[row2, row1]].values
-        # Échange les éléments dans les entrées et les en-têtes
-        for j in range(self.cols):
-            self.entries[row1][j].grid(row=row2 + 1)
-            self.entries[row2][j].grid(row=row1 + 1)
-            self.entries[row1][j], self.entries[row2][j] = self.entries[row2][j], self.entries[row1][j]
-        self.row_headers[row1].grid(row=row2 + 1)
-        self.row_headers[row2].grid(row=row1 + 1)
-        self.row_headers[row1], self.row_headers[row2] = self.row_headers[row2], self.row_headers[row1]
+        if 0 <= row1 < self.rows and 0 <= row2 < self.rows:
+            # Échange les lignes dans le DataFrame
+            self.df.iloc[[row1, row2]] = self.df.iloc[[row2, row1]].values
+            # Échange les éléments dans les entrées et les en-têtes
+            for j in range(self.cols):
+                if 0 <= j < len(self.entries[row1]) and 0 <= j < len(self.entries[row2]): #vérification supplémentaire
+                    self.entries[row1][j].grid(row=row2 + 1)
+                    self.entries[row2][j].grid(row=row1 + 1)
+                    self.entries[row1][j], self.entries[row2][j] = self.entries[row2][j], self.entries[row1][j]
+            self.row_headers[row1].grid(row=row2 + 1)
+            self.row_headers[row2].grid(row=row1 + 1)
+            self.row_headers[row1], self.row_headers[row2] = self.row_headers[row2], self.row_headers[row1]
+            self.update_entries_from_df()
+        else:
+            print("Indices de lignes hors limites dans swap_rows")
+    
+    def afficher_donnees_fusionnees(self, donnees_fusionnees):
+        """Affiche les données fusionnées dans la table."""
+        self.df = pd.DataFrame(donnees_fusionnees)
+        self.rows = len(donnees_fusionnees)
+        self.cols = len(donnees_fusionnees[0]) if donnees_fusionnees else 0
         self.update_entries_from_df()
 
 
