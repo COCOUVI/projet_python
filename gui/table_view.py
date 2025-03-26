@@ -1,4 +1,5 @@
 import tkinter as tk
+import pandas as pd
 
 class TableView(tk.Frame):
     def __init__(self, master=None, rows=10, cols=5):
@@ -7,9 +8,26 @@ class TableView(tk.Frame):
         self.rows = rows
         self.cols = cols
         self.entries = []
-        self.table_data = [['' for _ in range(cols)] for _ in range(rows)]
+        self.df = pd.DataFrame([['' for _ in range(cols)] for _ in range(rows)]) # Utilisation de pandas DataFrame
         self.selected_cells = []
-        self.merged_cells = {}  # Stocke les cellules fusionnées
+        self.merged_cells = {}
+        def select_cell(event):
+            widget = event.widget
+            if isinstance(widget, tk.Entry):  # Vérifier si le widget est un Entry
+                row = widget.grid_info()['row'] - 1
+                col = widget.grid_info()['column']
+                if row >= 0:
+                    if (row, col) not in self.selected_cells:
+                        self.selected_cells.append((row, col))
+                        widget.config(bg='lightblue')  # Changer la couleur de fond
+                    else:
+                        self.selected_cells.remove((row,col))
+                        widget.config(bg='white') # remet la couleur de base
+
+        self.select_cell = select_cell
+        for row_entries in self.entries:
+            for entry in row_entries:
+                entry.bind("<Control-Button-1>", self.select_cell)
 
         # Création des en-têtes de colonnes
         self.col_headers = [tk.Label(self, text=f"Col {j}", relief=tk.RIDGE) for j in range(cols)]
@@ -45,35 +63,37 @@ class TableView(tk.Frame):
             self.grid_columnconfigure(j, weight=1)
 
         self.drag_data = {"col": None, "row": None, "x": 0, "y": 0}
-        # Définition de select_cells avant le bind
-        def select_cells(event):
-            row = event.widget.grid_info()['row'] - 1
-            col = event.widget.grid_info()['column']
-            if row >= 0 and (row, col) not in self.selected_cells:
-                self.selected_cells.append((row, col))
-                event.widget.config(bg='lightblue')
 
-        self.select_cells = select_cells # Liaison de la fonction à l'instance
+        
+        def select_cells(event):
+            widget = event.widget
+            if isinstance(widget, tk.Entry):
+                row = widget.grid_info()['row'] - 1
+                col = widget.grid_info()['column']
+                if row >= 0 and (row, col) not in self.selected_cells:
+                    self.selected_cells.append((row, col))
+                    widget.config(bg='lightblue') # changer la couleur de fond
+                else:
+                    self.selected_cells.remove((row,col))
+                    widget.config(bg='white')
+        self.select_cells = select_cells
         self.bind("<Control-Button-1>", self.select_cell)
         self.bind("<Control-B1-Motion>", self.select_cells)
-        # Définition de merge_selected_cells avant le bouton
+
         def merge_selected_cells():
             if len(self.selected_cells) < 2:
-                return  # Besoin d'au moins deux cellules pour fusionner
+                return
 
             min_row = min(row for row, col in self.selected_cells)
             max_row = max(row for row, col in self.selected_cells)
             min_col = min(col for row, col in self.selected_cells)
             max_col = max(col for row, col in self.selected_cells)
 
-            # Vérifier si les cellules sélectionnées forment un rectangle
             if (max_row - min_row + 1) * (max_col - min_col + 1) != len(self.selected_cells):
-                return  # Les cellules ne forment pas un rectangle
+                return
 
-            # Récupérer le texte de la première cellule
             merged_text = self.entries[min_row][min_col].get()
 
-            # Fusionner les cellules
             for row, col in self.selected_cells:
                 if row == min_row and col == min_col:
                     self.entries[row][col].grid(row=min_row + 1, column=min_col, rowspan=max_row - min_row + 1, columnspan=max_col - min_col + 1, sticky='nsew')
@@ -83,34 +103,33 @@ class TableView(tk.Frame):
                 else:
                     self.entries[row][col].grid_forget()
 
-            # Réinitialiser la sélection
             for row, col in self.selected_cells:
                 self.entries[row][col].config(bg='white')
             self.selected_cells = []
 
-        self.merge_selected_cells = merge_selected_cells # liaison de la fonction a l'instance
+        self.merge_selected_cells = merge_selected_cells
 
+        # self.merge_button = tk.Button(self, text="Fusionner", command=self.merge_selected_cells)
+        # self.merge_button.grid(row=rows + 1, column=0, columnspan=cols)
 
-        # Bouton de fusion
-        self.merge_button = tk.Button(self, text="Fusionner", command=self.merge_selected_cells)
-        self.merge_button.grid(row=rows + 1, column=0, columnspan=cols)
+        self.update_entries_from_df() # Mettre à jour les entrées à partir du DataFrame
 
-    # Gestion des données
     def get_data(self):
-        return self.table_data
+        return self.df.values.tolist() # Retourner les données sous forme de liste
 
     def set_data(self, data):
-        self.table_data = data
-        for i, row in enumerate(data):
-            for j, value in enumerate(row):
-                if i < self.rows and j < self.cols:
-                    self.entries[i][j].delete(0, tk.END)
-                    self.entries[i][j].insert(0, value)
+        self.df = pd.DataFrame(data) # Mettre à jour le DataFrame
+        self.update_entries_from_df() # Mettre à jour les entrées
 
     def on_cell_change(self, event, row, col):
-        self.table_data[row][col] = event.widget.get()
+        self.df.iloc[row, col] = event.widget.get() # Mettre à jour le DataFrame
+        self.update_entries_from_df() # Mettre à jour les entrées
 
-    # Déplacement des colonnes
+    def update_entries_from_df(self):
+        for i in range(self.rows):
+            for j in range(self.cols):
+                self.entries[i][j].delete(0, tk.END)
+                self.entries[i][j].insert(0, str(self.df.iloc[i, j]))
     def start_col_drag(self, event):
         header = event.widget
         col = header.grid_info()["column"]
@@ -133,6 +152,9 @@ class TableView(tk.Frame):
         self.drag_data["col"] = None
 
     def swap_cols(self, col1, col2):
+        cols = list(self.df.columns)
+        cols[col1], cols[col2] = cols[col2], cols[col1]
+        self.df = self.df[cols]
         for i in range(self.rows):
             self.entries[i][col1].grid(column=col2)
             self.entries[i][col2].grid(column=col1)
@@ -140,9 +162,8 @@ class TableView(tk.Frame):
         self.col_headers[col1].grid(column=col2)
         self.col_headers[col2].grid(column=col1)
         self.col_headers[col1], self.col_headers[col2] = self.col_headers[col2], self.col_headers[col1]
-        for row in self.table_data:
-            row[col1], row[col2] = row[col2], row[col1]
-
+        self.update_entries_from_df()
+      
     # Déplacement des lignes
     def start_row_drag(self, event):
         header = event.widget
@@ -166,6 +187,9 @@ class TableView(tk.Frame):
         self.drag_data["row"] = None
 
     def swap_rows(self, row1, row2):
+        # Échange les lignes dans le DataFrame
+        self.df.iloc[[row1, row2]] = self.df.iloc[[row2, row1]].values
+        # Échange les éléments dans les entrées et les en-têtes
         for j in range(self.cols):
             self.entries[row1][j].grid(row=row2 + 1)
             self.entries[row2][j].grid(row=row1 + 1)
@@ -173,12 +197,7 @@ class TableView(tk.Frame):
         self.row_headers[row1].grid(row=row2 + 1)
         self.row_headers[row2].grid(row=row1 + 1)
         self.row_headers[row1], self.row_headers[row2] = self.row_headers[row2], self.row_headers[row1]
-        self.table_data[row1], self.table_data[row2] = self.table_data[row2], self.table_data[row1]
+        self.update_entries_from_df()
 
-    def select_cell(self, event):
-        row = event.widget.grid_info()['row'] - 1
-        col = event.widget.grid_info()['column']
-        if row >= 0:
-            if (row, col) not in self.selected_cells:
-                self.selected_cells.append((row, col))
-                event.widget.config(bg='lightblue')
+
+    # (Le reste de votre code pour les déplacements des colonnes et des lignes)
