@@ -1,1 +1,2 @@
-![Cpature du fichier main qui permet de demarrer le programme](images/Capture d'écran 2025-03-27 003820.png)
+Voicie le main.py qui permet de demarrer le programmme du projet
+![Capture du main.py qui permet de demarrer le programme du projet](images/picture1.png)
